@@ -19,6 +19,15 @@ The Moodle plugin at `/var/www/html/public/local/videoelicit/` embeds `index.htm
 
 Apache proxies `https://aimove.minesparis.psl.eu/videoelicit-ui/` → `http://127.0.0.1:8005/`. The FastAPI backend mounts the project root at `/static`, so `mockup-studio.html` is reachable at `/videoelicit-ui/static/mockup-studio.html`. `NoCacheStaticFiles` means CSS/HTML edits are picked up on hard refresh — no restart needed.
 
+**Knowledge silos:** the project modal's "Visibility" dropdown
+(`renderCohortSelector` / `handleProjectFormSubmit` in `js/app.js`,
+`/api/cohorts/managed` + project update in `backend/main.py`) assigns a
+project's annotations to a Moodle cohort, siloing them from other
+companies' users in CraftPilot's RAG. This is only the frontend half —
+the full setup workflow (Moodle admin steps, capability requirements,
+verification) is documented in the `craftpilot_backend` repo:
+`docs/KNOWLEDGE_SILOS_WORKFLOW.md`.
+
 ---
 
 ## Frontend design system — "Studio" theme
