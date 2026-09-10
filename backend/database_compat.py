@@ -129,11 +129,23 @@ def _dict_to_model(data: Optional[Dict], model_class):
         return data
 
 
-def _model_to_dict(model):
-    """Convert Pydantic model to dictionary for moodle_db, excluding None values"""
+def _model_to_dict(model, exclude_unset: bool = False):
+    """Convert a Pydantic model to a dict for moodle_db.
+
+    By default None values are dropped, which suits creates (absent means
+    "use the default"). Partial updates need `exclude_unset=True` instead:
+    there, an explicitly-supplied None is a real instruction — clearing a
+    project's knowledge-silo cohort back to open access — and dropping it
+    would make that choice silently do nothing, while a field the caller
+    never mentioned is still left untouched.
+    """
     if hasattr(model, 'model_dump'):
+        if exclude_unset:
+            return model.model_dump(exclude_unset=True)
         return model.model_dump(exclude_none=True)
     elif hasattr(model, 'dict'):
+        if exclude_unset:
+            return model.dict(exclude_unset=True)
         return model.dict(exclude_none=True)
     else:
         return model
@@ -283,7 +295,9 @@ async def get_all_projects(session: FakeSession, skip: int = 0, limit: int = 100
 
 async def update_project(session: FakeSession, project_id: int, update_data: ProjectUpdate) -> Optional[Project]:
     """Update project"""
-    data_dict = _model_to_dict(update_data)
+    # exclude_unset: an explicit allowed_cohort_id=None means "open access"
+    # and must reach the database, not be stripped as a missing value.
+    data_dict = _model_to_dict(update_data, exclude_unset=True)
     result = await moodle_db.update_project(project_id, data_dict)
     return _dict_to_model(result, Project)
 

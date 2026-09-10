@@ -838,14 +838,16 @@ class MoodleDBAdapter:
 
             query = f"""
                 INSERT INTO {self._table('projects')}
-                (name, description, userid, timecreated, timemodified)
-                VALUES (%s, %s, %s, %s, %s)
+                (name, description, allowed_cohort_id, userid, timecreated, timemodified)
+                VALUES (%s, %s, %s, %s, %s, %s)
                 RETURNING id
             """
 
             project_id = self._insert(cursor, query, (
                 project_data['name'],
                 project_data.get('description'),
+                # Knowledge silo: None means open access.
+                project_data.get('allowed_cohort_id'),
                 project_data.get('userid', 0),
                 now, now,
             ))
@@ -854,6 +856,24 @@ class MoodleDBAdapter:
             cursor.execute(f"SELECT * FROM {self._table('projects')} WHERE id = %s", (project_id,))
             return dict(cursor.fetchone())
     
+    def cohort_exists_sync(self, cohort_id: Optional[int]) -> bool:
+        """Whether a cohort id refers to a real Moodle cohort.
+
+        None is valid: it is the "open access" choice. A non-existent id must
+        be rejected because content locked to it becomes retrievable by
+        nobody — a silent failure that looks identical to a broken silo.
+        """
+        if cohort_id is None:
+            return True
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT 1 FROM mdl_cohort WHERE id = %s", (cohort_id,))
+            return cursor.fetchone() is not None
+
+    async def cohort_exists(self, cohort_id: Optional[int]) -> bool:
+        """Async wrapper for cohort_exists_sync"""
+        return await self._run_in_executor(self.cohort_exists_sync, cohort_id)
+
     async def create_project(self, project_data: Dict[str, Any]) -> Dict[str, Any]:
         """Async wrapper for create_project"""
         return await self._run_in_executor(self.create_project_sync, project_data)
@@ -900,6 +920,11 @@ class MoodleDBAdapter:
             if 'description' in update_data:
                 fields.append("description = %s")
                 values.append(update_data['description'])
+            # Membership test, not a truthiness test: an explicit None is the
+            # "Open access" choice and must be persisted, not skipped.
+            if 'allowed_cohort_id' in update_data:
+                fields.append("allowed_cohort_id = %s")
+                values.append(update_data['allowed_cohort_id'])
             
             if not fields:
                 return self.get_project_sync(project_id)

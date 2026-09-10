@@ -896,20 +896,42 @@ async def register_local_video(
 # COHORT ENDPOINTS
 # ============================================================================
 
+# Organisations this elicitor may lock content to.
+#
+# The previous query required the user to be a teacher in a course with a
+# cohort-sync enrolment instance. No course on this site has ever had one, so
+# it returned an empty list for every user including admins — which is why the
+# "restrict to my organisation" control was permanently greyed out.
+#
+# Cohort-sync instances are also the wrong fix: they would enrol every cohort
+# member into a course as a side effect, whereas the knowledge silo needs only
+# cohort membership (SiloService reads mdl_cohort_members directly).
+#
+# The source of truth is now the local_orgrequest registry — the same one that
+# governs who may approve people into an organisation.
 _MANAGED_COHORTS_QUERY = """
-    SELECT DISTINCT c.id, c.name
-    FROM mdl_cohort c
-    JOIN mdl_enrol e ON e.customint1 = c.id AND e.enrol = 'cohort'
-    JOIN mdl_context ctx ON ctx.instanceid = e.courseid AND ctx.contextlevel = 50
-    JOIN mdl_role_assignments ra ON ra.contextid = ctx.id AND ra.userid = %s
-    JOIN mdl_role r ON r.id = ra.roleid
-        AND r.shortname IN ('teacher', 'editingteacher', 'manager')
+    SELECT c.id, c.name
+    FROM mdl_local_orgrequest_org o
+    JOIN mdl_cohort c ON c.id = o.cohortid
+    JOIN mdl_local_orgrequest_manager m ON m.orgid = o.id AND m.userid = %s
+    WHERE o.enabled = 1
+    ORDER BY c.name
+"""
+
+# Site staff can lock content to any published organisation — they cover
+# organisations that have not yet nominated their own contact.
+_ALL_ORGS_QUERY = """
+    SELECT c.id, c.name
+    FROM mdl_local_orgrequest_org o
+    JOIN mdl_cohort c ON c.id = o.cohortid
+    WHERE o.enabled = 1
+    ORDER BY c.name
 """
 
 
 @app.get("/api/cohorts/managed")
 async def get_managed_cohorts(
-    current_user: MoodleUser = Depends(verify_moodle_jwt),
+    current_user: MoodleUser = Depends(require_capability("manage")),
 ):
     """Return cohorts the JWT user is responsible for (has teacher role in an enrolled course).
 
@@ -926,9 +948,13 @@ async def get_managed_cohorts(
             database="moodle",
             cursorclass=pymysql.cursors.DictCursor,
         )
+        is_staff = any(role in ('admin', 'manager') for role in (current_user.roles or []))
         with conn:
             with conn.cursor() as cur:
-                cur.execute(_MANAGED_COHORTS_QUERY, (user_id,))
+                if is_staff:
+                    cur.execute(_ALL_ORGS_QUERY)
+                else:
+                    cur.execute(_MANAGED_COHORTS_QUERY, (user_id,))
                 rows = cur.fetchall()
         return [{"cohort_id": r["id"], "cohort_name": r["name"]} for r in rows]
     except Exception as e:
@@ -951,6 +977,12 @@ async def create_project(
     course-wide structure (not owned by an individual user), so creating
     one is a 'manage' action, not something any logged-in student should do."""
     try:
+        if not await moodle_db.cohort_exists(project.allowed_cohort_id):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unknown cohort id {project.allowed_cohort_id}. Content locked "
+                       "to a non-existent cohort would be retrievable by nobody.",
+            )
         new_project = await db.create_project(session, project)
         logger.info(f"Project created: {new_project.name} (ID={new_project.id})")
         return new_project
@@ -1037,6 +1069,14 @@ async def update_project(
         current = await db.get_project(session, project_id)
         if not current:
             raise HTTPException(status_code=404, detail="Project not found")
+
+        if 'allowed_cohort_id' in project_update.model_fields_set:
+            if not await moodle_db.cohort_exists(project_update.allowed_cohort_id):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Unknown cohort id {project_update.allowed_cohort_id}. Content "
+                           "locked to a non-existent cohort would be retrievable by nobody.",
+                )
 
         old_cohort_id = current.allowed_cohort_id
         updated_project = await db.update_project(session, project_id, project_update)
@@ -1400,6 +1440,12 @@ async def push_annotation_to_rag(annotation_id: int, transcription: str) -> None
             "audio_filepath":   annotation.get("audio_filepath") or annotation.get("audiofilepath") or "",
             "language":         annotation.get("language"),
             "allowed_cohort_id": project.get("allowed_cohort_id") if project else None,
+            # craft drives CraftPilot's CRAFT_COHORT_MAP safety net, which keeps
+            # partner content restricted when a project has no cohort set.
+            "craft":            annotation.get("craft"),
+            "task":             annotation.get("task"),
+            "annotation_created_at": str(annotation.get("timecreated") or annotation.get("annotation_created_at") or ""),
+            "annotation_updated_at": str(annotation.get("timemodified") or annotation.get("annotation_updated_at") or ""),
         }).encode()
 
         internal_token = os.getenv("INTERNAL_API_TOKEN", "")
