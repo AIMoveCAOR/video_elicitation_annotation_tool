@@ -17,7 +17,7 @@ This file is auto-loaded by Claude Code sessions in this repo. Read it first bef
 
 The Moodle plugin at `/var/www/html/public/local/videoelicit/` embeds `index.html` in an iframe with a JWT in `?token=`. The viewer dashboard at `/var/www/html/public/annotation_viewer.html` is a separate, standalone page (also themed light/dark).
 
-Apache proxies `https://aimove.minesparis.psl.eu/videoelicit-ui/` → `http://127.0.0.1:8005/`. The FastAPI backend mounts the project root at `/static`, so `mockup-studio.html` is reachable at `/videoelicit-ui/static/mockup-studio.html`. `NoCacheStaticFiles` means CSS/HTML edits are picked up on hard refresh — no restart needed.
+Apache proxies `https://aimove.minesparis.psl.eu/videoelicit-ui/` → `http://127.0.0.1:8005/`. The FastAPI backend serves **only** `css/` and `js/` under `/static` (plus an explicit route for `admin-tests.html`). It used to mount the whole project root there, which published `.env`, `.git`, the SQLite databases and the elicitation audio to the internet — fixed 2026-09-11. **Never widen `/static` back to the project root, and never put files meant for review in this folder:** anything served here is public. `NoCacheStaticFiles` means CSS/JS edits are picked up on hard refresh — no restart needed.
 
 **Knowledge silos:** the project modal's "Visibility" dropdown
 (`renderCohortSelector` / `handleProjectFormSubmit` in `js/app.js`,
@@ -135,7 +135,7 @@ Brand block (title + subtitle) sits immediately to the right of the back-to-Mood
 ## Workflow rules (learned during this build)
 
 - **Always branch from `main`** before frontend work: `git checkout main && git pull && git checkout -b feat/<name>`. Don't pile changes onto an existing feature branch.
-- **Mockup first, port second.** Big visual changes start as a self-contained `mockup-*.html` at the repo root so the user can review on the real server (`/videoelicit-ui/static/mockup-*.html`) before any production CSS is touched.
+- **Mockup first, port second.** Big visual changes start as a self-contained `mockup-*.html` reviewed *before* any production CSS is touched. Do not publish it from this folder (the site is public): share it as a private Claude artifact, send the file, or have the user view it through an SSH tunnel.
 - **Preserve IDs.** `app.js` reaches into the DOM by ID heavily. Renaming an element ID = silently breaking the app. If you restructure markup, keep IDs intact.
 - **No emojis** in code, commits, or generated text unless the user explicitly asks.
 - **No new inline styles** — the user has called these out as theme leaks. If you find an old one (`style="background:#xxx..."`), move it to CSS and remove the attribute.

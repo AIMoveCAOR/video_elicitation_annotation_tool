@@ -3037,8 +3037,20 @@ class NoCacheStaticFiles(StaticFiles):
         return response
 
 
-# Mount static files (frontend) with no-cache for development
-app.mount("/static", NoCacheStaticFiles(directory=str(FRONTEND_DIR)), name="static")
+# Serve only the frontend's asset folders. FRONTEND_DIR is the project root, so
+# mounting it whole published .env, .git, the SQLite databases and the recorded
+# elicitation audio to the internet. Anything new the page needs goes in css/ or
+# js/, or gets an explicit route like admin-tests.html below.
+app.mount("/static/css", NoCacheStaticFiles(directory=str(FRONTEND_DIR / "css")), name="static-css")
+app.mount("/static/js", NoCacheStaticFiles(directory=str(FRONTEND_DIR / "js")), name="static-js")
+
+
+@app.get("/static/admin-tests.html", include_in_schema=False)
+async def serve_admin_tests():
+    """Admin test runner page; used to be reachable through the root mount."""
+    response = FileResponse(FRONTEND_DIR / "admin-tests.html")
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    return response
 
 
 # ==================== TUTORIAL SEEN FLAG ====================
