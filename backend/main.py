@@ -58,6 +58,7 @@ from config import (
     MAX_UPLOAD_SIZE,
     GOOGLE_DRIVE_API_KEY,
     GOOGLE_DRIVE_DEFAULT_FOLDER_ID,
+    CRAFTPILOT_INTERNAL_TOKEN,
 )
 
 
@@ -1086,7 +1087,7 @@ async def update_project(
         new_cohort_id = updated_project.allowed_cohort_id
         if old_cohort_id != new_cohort_id:
             craftpilot_url = "http://127.0.0.1:8000/api/resync-project-annotations"
-            internal_token = os.getenv("INTERNAL_API_TOKEN", "")
+            internal_token = CRAFTPILOT_INTERNAL_TOKEN
             payload = {
                 "project_name": updated_project.name,
                 "allowed_cohort_id": new_cohort_id,
@@ -1448,7 +1449,7 @@ async def push_annotation_to_rag(annotation_id: int, transcription: str) -> None
             "annotation_updated_at": str(annotation.get("timemodified") or annotation.get("annotation_updated_at") or ""),
         }).encode()
 
-        internal_token = os.getenv("INTERNAL_API_TOKEN", "")
+        internal_token = CRAFTPILOT_INTERNAL_TOKEN
 
         def _post():
             req = urllib.request.Request(
@@ -2815,10 +2816,10 @@ def _verify_internal_token(request: Request) -> None:
     """Gate service-to-service endpoints (e.g. the CraftPilot RAG backend
     calling back into this API) behind a shared secret sent as
     'X-Internal-Token'. Unlike admin_routes._verify_secret, this fails
-    CLOSED if INTERNAL_API_TOKEN is unset — this guards a full-corpus data
+    CLOSED if CRAFTPILOT_INTERNAL_TOKEN is unset — this guards a full-corpus data
     dump, so a missing secret must not silently mean "open to anyone".
     """
-    expected = os.getenv("INTERNAL_API_TOKEN", "")
+    expected = CRAFTPILOT_INTERNAL_TOKEN
     provided = request.headers.get("X-Internal-Token", "")
     if not expected or not provided or not secrets.compare_digest(provided, expected):
         raise HTTPException(status_code=403, detail="Invalid internal token")

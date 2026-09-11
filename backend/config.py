@@ -72,6 +72,12 @@ CORS_ORIGINS = [o for o in [
 # exchanged for a short-lived SSE token via POST /api/admin/token.
 ADMIN_SECRET = os.getenv("ADMIN_SECRET", "")
 
+# Shared secret for calls between this backend and CraftPilot, sent and checked
+# as X-Internal-Token. .env names it CRAFTPILOT_INTERNAL_TOKEN (see .env.example);
+# main.py used to read INTERNAL_API_TOKEN instead, which .env never set, so every
+# push to CraftPilot went out with an empty token and was refused (HTTP 401).
+CRAFTPILOT_INTERNAL_TOKEN = os.getenv("CRAFTPILOT_INTERNAL_TOKEN") or os.getenv("INTERNAL_API_TOKEN", "")
+
 # Infomaniak AI — OpenAI-compatible, used for all active LLM inference
 INFOMANIAK_API_KEY = os.getenv("INFOMANIAK_API_KEY", "")
 INFOMANIAK_PRODUCT_ID = os.getenv("INFOMANIAK_PRODUCT_ID", "")
